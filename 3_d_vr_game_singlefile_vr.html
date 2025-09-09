@@ -3,29 +3,25 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>WebXR Shooter — Single File</title>
+  <title>WebXR VR Shooter — Full Version</title>
   <style>
     html,body{height:100%;margin:0;background:#111;color:#ddd;font-family:system-ui,Segoe UI,Roboto,Arial;overflow:hidden}
     #info{position:fixed;left:12px;top:12px;z-index:20;background:rgba(0,0,0,0.45);padding:8px 12px;border-radius:8px}
     #enterVrHint{position:fixed;right:12px;top:12px;z-index:20;background:rgba(0,0,0,0.45);padding:8px 12px;border-radius:8px}
-    #overlay{position:fixed;left:0;right:0;top:0;bottom:0;pointer-events:none}
     canvas{display:block}
   </style>
 </head>
 <body>
-  <div id="info">WebXR Shooter — Trigger to shoot. Yellow bullets. Collect floating coins.</div>
+  <div id="info">WebXR Shooter — Score: 0</div>
   <div id="enterVrHint">If your browser supports WebXR, click <strong>Enter VR</strong> in the button that appears.</div>
-  <div id="overlay"></div>
 
   <script type="module">
   import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.156.0/build/three.module.js';
   import { VRButton } from 'https://cdn.jsdelivr.net/npm/three@0.156.0/examples/jsm/webxr/VRButton.js';
 
-  // Basic WebXR-ready scene. Works in non-VR fallback (mouse & WASD) but best in a WebXR-capable browser & headset.
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x87ceeb);
-
-  const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
+  const camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.1, 1000);
 
   const renderer = new THREE.WebGLRenderer({antialias:true});
   renderer.setPixelRatio(window.devicePixelRatio);
@@ -34,7 +30,7 @@
   document.body.appendChild(renderer.domElement);
   document.body.appendChild(VRButton.createButton(renderer));
 
-  // Light
+  // Lights
   const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0); hemi.position.set(0,50,0); scene.add(hemi);
   const dir = new THREE.DirectionalLight(0xffffff, 0.6); dir.position.set(-10,20,10); scene.add(dir);
 
@@ -42,13 +38,13 @@
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(200,200), new THREE.MeshStandardMaterial({color:0x2d8b4f}));
   ground.rotation.x = -Math.PI/2; ground.receiveShadow = true; scene.add(ground);
 
-  // Player rig for VR: a group that contains camera
+  // Player rig
   const rig = new THREE.Group();
   rig.position.set(0,0,5);
   rig.add(camera);
   scene.add(rig);
 
-  // Simple obstacles
+  // Obstacles
   const obstacles = [];
   const obsMat = new THREE.MeshStandardMaterial({color:0x6b4c3b});
   for(let i=0;i<12;i++){
@@ -70,7 +66,7 @@
   }
   for(let i=0;i<18;i++) spawnCoin((Math.random()-0.5)*60, 0.5 + Math.random()*2, (Math.random()-0.5)*60);
 
-  // Enemies (optional simple spheres)
+  // Enemies
   const enemies = [];
   const enemyMat = new THREE.MeshStandardMaterial({color:0xff4444});
   function spawnEnemy(x,z){
@@ -79,140 +75,114 @@
     scene.add(e);
     enemies.push(e);
   }
-  for(let i=0;i<5;i++) spawnEnemy((Math.random()-0.5)*60, (Math.random()-0.5)*60);
+  for(let i=0;i<15;i++) spawnEnemy((Math.random()-0.5)*60,(Math.random()-0.5)*60);
+
+  function spawnEnemiesOverTime(){
+    setInterval(()=>{
+      if(enemies.length < 30){
+        spawnEnemy((Math.random()-0.5)*60,(Math.random()-0.5)*60);
+      }
+    }, 5000);
+  }
+  spawnEnemiesOverTime();
 
   // Bullets
   const bullets = [];
   const bulletGeo = new THREE.SphereGeometry(0.08,8,8);
-  const bulletMat = new THREE.MeshBasicMaterial({color:0xffff00}); // yellow
+  const bulletMat = new THREE.MeshBasicMaterial({color:0xffff00});
 
   // Controllers
   const controller1 = renderer.xr.getController(0);
   const controller2 = renderer.xr.getController(1);
   scene.add(controller1); scene.add(controller2);
 
-  // visual controller tips
   const controllerModel = new THREE.Mesh(new THREE.CylinderGeometry(0.02,0.04,0.2,8), new THREE.MeshStandardMaterial({color:0x333}));
   controllerModel.rotation.x = -Math.PI/2;
   controller1.add(controllerModel.clone()); controller2.add(controllerModel.clone());
 
-  // When user presses trigger, spawn a bullet from controller
-  function onSelectStart(){
-    const controller = this;
-    // spawn bullet at controller position
+  function shoot(controller){
     const b = new THREE.Mesh(bulletGeo, bulletMat);
-    const pos = new THREE.Vector3();
-    controller.getWorldPosition(pos);
+    const pos = new THREE.Vector3(); controller.getWorldPosition(pos);
     b.position.copy(pos);
-    // direction: controller's -Z in world space
     const dir = new THREE.Vector3(0,0,-1).applyQuaternion(controller.quaternion).normalize();
-    scene.add(b);
-    bullets.push({mesh:b, dir:dir, life:3});
-  }
-  controller1.addEventListener('selectstart', onSelectStart);
-  controller2.addEventListener('selectstart', onSelectStart);
-
-  // Simple haptic / click feedback when coin touched (if gamepad supports)
-  function tryHaptic(controller){
-    try{
-      const gp = controller.gamepad;
-      if(gp && gp.hapticActuators && gp.hapticActuators[0]) gp.hapticActuators[0].pulse(0.3,50);
-    }catch(e){}
-  }
-
-  // Non-VR fallback controls (mouse look + WASD)
-  let yaw=0,pitch=0;
-  const keys = {};
-  let pointerLocked=false;
-  const sensitivity = 0.0025;
-  const canvas = renderer.domElement;
-  canvas.addEventListener('click', ()=>{ canvas.requestPointerLock?.(); });
-  document.addEventListener('pointerlockchange', ()=>{ pointerLocked = document.pointerLockElement === canvas; });
-  document.addEventListener('mousemove', e=>{ if(!pointerLocked) return; yaw -= e.movementX*sensitivity; pitch -= e.movementY*sensitivity; pitch = Math.max(-Math.PI/2+0.1, Math.min(Math.PI/2-0.1, pitch)); });
-  window.addEventListener('keydown', e=>{ keys[e.code]=true; }); window.addEventListener('keyup', e=>{ keys[e.code]=false; });
-  window.addEventListener('mousedown', e=>{ if(!renderer.xr.isPresenting) nonVrShoot(); });
-
-  function nonVrShoot(){
-    // shoot from camera
-    const b = new THREE.Mesh(bulletGeo, bulletMat);
-    const pos = new THREE.Vector3(); camera.getWorldPosition(pos);
-    b.position.copy(pos);
-    const dir = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion).normalize();
     scene.add(b); bullets.push({mesh:b, dir:dir, life:3});
   }
 
-  // HUD overlay in DOM (for non-VR)
+  controller1.addEventListener('selectstart', function(){ shoot(this); });
+  controller2.addEventListener('selectstart', function(){ shoot(this); });
+
+  // HUD
   const infoEl = document.getElementById('info');
   let score = 0;
-  function updateHUD(){ infoEl.innerHTML = `WebXR Shooter — Score: ${score}. Trigger to shoot.`; }
+  function updateHUD(){ infoEl.innerHTML = `WebXR Shooter — Score: ${score}`; }
 
-  // animation loop
+  // VR movement
+  function updateVRMovement(dt){
+    const speed = 3;
+    [controller1, controller2].forEach(controller => {
+      const gp = controller.gamepad;
+      if(gp && gp.axes.length >= 4){
+        const x = gp.axes[2] || 0;
+        const y = gp.axes[3] || 0;
+        if(Math.abs(x) > 0.1 || Math.abs(y) > 0.1){
+          const forward = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion); forward.y=0; forward.normalize();
+          const right = new THREE.Vector3().crossVectors(forward,new THREE.Vector3(0,1,0)).normalize();
+          const move = new THREE.Vector3();
+          move.addScaledVector(right, x*speed*dt);
+          move.addScaledVector(forward, y*speed*dt);
+          rig.position.add(move);
+        }
+      }
+    });
+  }
+
+  // Animate loop
   const clock = new THREE.Clock();
   function animate(){
     const dt = Math.min(0.05, clock.getDelta());
 
-    // non-VR movement
-    if(!renderer.xr.isPresenting){
-      // update camera orientation from yaw/pitch
-      camera.rotation.set(pitch, yaw, 0);
-      // simple WASD movement on rig
-      const forward = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion); forward.y=0; forward.normalize();
-      const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0,1,0)).normalize();
-      const move = new THREE.Vector3();
-      if(keys['KeyW']) move.add(forward);
-      if(keys['KeyS']) move.sub(forward);
-      if(keys['KeyA']) move.sub(right);
-      if(keys['KeyD']) move.add(right);
-      if(move.lengthSq()>0) move.normalize().multiplyScalar(4*dt);
-      rig.position.add(move);
-    } else {
-      // if in VR, sync rig position with camera's local height so user stands on ground
-      const xrCamera = renderer.xr.getCamera(camera);
-      const camWorldPos = new THREE.Vector3(); xrCamera.getWorldPosition(camWorldPos);
-      // Move rig horizontally so camera stays above rig position
-      rig.position.x = camWorldPos.x; rig.position.z = camWorldPos.z; // keep rig.y anchored
-    }
+    if(renderer.xr.isPresenting){ updateVRMovement(dt); }
 
-    // bullets update
+    // Bullets update
     for(let i=bullets.length-1;i>=0;i--){
-      const b = bullets[i]; b.mesh.position.addScaledVector(b.dir, dt*25);
+      const b = bullets[i];
+      b.mesh.position.addScaledVector(b.dir, dt*25);
       b.life -= dt;
       if(b.life<=0){ scene.remove(b.mesh); bullets.splice(i,1); continue; }
-      // check against enemies
+      // Check enemies
       for(let j=enemies.length-1;j>=0;j--){
         const en = enemies[j];
-        if(b.mesh.position.distanceTo(en.position) < 0.9){
+        if(b.mesh.position.distanceTo(en.position)<0.9){
           scene.remove(en); enemies.splice(j,1); scene.remove(b.mesh); bullets.splice(i,1); score+=10; updateHUD(); break;
         }
       }
-      // check against coins
+      // Check coins
       for(let k=collectibles.length-1;k>=0;k--){
         const coin = collectibles[k];
-        if(b.mesh.position.distanceTo(coin.position) < 0.6){
+        if(b.mesh.position.distanceTo(coin.position)<0.6){
           scene.remove(coin); collectibles.splice(k,1); scene.remove(b.mesh); bullets.splice(i,1); score+=3; updateHUD(); break;
         }
       }
     }
 
-    // simple enemy AI (move towards rig)
+    // Enemies move toward rig
     for(const en of enemies){
-      const dir = new THREE.Vector3().subVectors(rig.position, en.position); dir.y=0; if(dir.length()>0.2){ dir.normalize(); en.position.addScaledVector(dir, dt*0.8); }
+      const dir = new THREE.Vector3().subVectors(rig.position,en.position); dir.y=0;
+      if(dir.length()>0.2){ dir.normalize(); en.position.addScaledVector(dir, dt*0.8); }
     }
 
-    // float coins
+    // Coins float
     const t = performance.now()/500;
     for(const c of collectibles) c.position.y += Math.sin(t + c.position.x*0.1)*0.002;
 
     renderer.render(scene, camera);
   }
-
   renderer.setAnimationLoop(animate);
 
-  // helper resize
-  window.addEventListener('resize', ()=>{ camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
+  // Resize
+  window.addEventListener('resize', ()=>{ camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
 
   updateHUD();
-  
   </script>
 </body>
 </html>
